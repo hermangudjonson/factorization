@@ -1,0 +1,25 @@
+name: factorization_v0
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python =3.11
+  - matplotlib
+  - seaborn
+  - jupyterlab
+  - notebook
+  - pytorch
+  - pyro-ppl
+  - torchvision
+  - torchaudio
+  - python-wget
+  - pandas-datareader
+  - scikit-learn
+  - black
+  - fire
+  - cloudpickle
+  - loguru
+  - flit
+  - pip
+  - pip:
+    - -e /Users/hermangudjonson/Dropbox/ml_practice/pyro/factorization_practice/factorization
