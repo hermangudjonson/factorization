@@ -12,6 +12,7 @@ dependencies:
   - pyro-ppl
   - torchvision
   - torchaudio
+  - torchinfo
   - python-wget
   - pandas-datareader
   - scikit-learn

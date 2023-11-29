@@ -4,32 +4,31 @@ PCA implementation practice with Pytorch
 
 import copy
 import time
-from typing import Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import torch
 from torch import nn
 from torch.nn.parameter import Parameter
 from torch.utils.data import DataLoader, TensorDataset
+import torchinfo
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 
 
 class TensorIndicesDataset(TensorDataset):
-    """Extend TensorDataset to return index along with sample"""
+    """Extend TensorDataset to return index along with sample."""
 
     def __getitem__(self, index):
         dtuple = super(TensorIndicesDataset, self).__getitem__(index)
         return tuple(list(dtuple) + [index])
 
 
-class _PCAModule(nn.Module):
+class _MFModule(nn.Module):
     def __init__(
         self,
-        X_shape: Tuple[int, int],
+        X_shape: tuple[int, int],
         K: int = 2,
     ):
-        super(_PCAModule, self).__init__()
+        super(_MFModule, self).__init__()
         # sizing
         self.N, self.P = X_shape
         self.K = K
@@ -42,21 +41,39 @@ class _PCAModule(nn.Module):
         return self.z[indices, :] @ self.W.T + self.mu
 
 
-class PytorchPCA:
-    """Trying to achieve a simple PCA implementation using generic Pytorch optimizers"""
+class PytorchMF(BaseEstimator, TransformerMixin):
+    """Trying to achieve a simple MF implementation using generic Pytorch optimizers."""
 
     def __init__(
         self,
         n_components: int = 2,
+        n_epoch: int = 10,
+        early_stopping: int = 5,
+        save_epoch: int = 1,
+        save_model: bool = False,
+        lr: float = 1e-3,
+        alpha: float = 1e-2,
     ):
         self.n_components = n_components
-        self.history = {"loss": [], "model": []}
+        self.n_epoch = n_epoch
+        self.early_stopping = early_stopping
+        self.save_epoch = save_epoch
+        self.save_model = save_model
+        self.lr = lr
+        self.alpha = alpha  # regularization coefficient
+
+    def _init_estimator(self):
+        """Initialize estimator for fitting."""
+        # automatically generated attributes
+        self.history = {"loss": []}
+        if self.save_model:
+            self.history["model"] = []
         # CPU or GPU
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device} device")
 
-    def _init_model(self, X: np.ndarray, lr=1e-3):
-        """Create torch model given starting data"""
+    def _init_model(self, X: np.ndarray, lr: float):
+        """Create torch model given starting data."""
         self.N, self.P = X.shape
         # pytorch objects
         # data
@@ -70,22 +87,21 @@ class PytorchPCA:
         )
 
         # model
-        self.model = _PCAModule(X.shape, self.n_components).to(self.device)
+        self.model = _MFModule(X.shape, self.n_components).to(self.device)
 
         # loss and optimizer
         self._data_loss = nn.MSELoss()
-        self._alpha = 1e-2  # regularization coefficient
         self.optim = torch.optim.Adam(self.model.parameters(), lr=lr)
 
     def _regular_loss(self):
-        """Compute regularization loss on parameters
+        """Compute regularization loss on parameters.
 
-        includes regularization coefficient
+        includes regularization coefficient and size normalized
         """
-        return self._alpha * torch.norm(self.model.z, p=2)
+        return self.alpha * torch.norm(self.model.z, p=2) / self.model.z.size(0)
 
     def _compute_loss(self, target_pred, target):
-        """Combine data loss and regularization loss
+        """Combine data loss and regularization loss.
 
         Parameters
         ----------
@@ -100,7 +116,7 @@ class PytorchPCA:
         """
         return self._data_loss(target_pred, target) + self._regular_loss()
 
-    def _train(self, n_epoch=10, save_epoch=1):
+    def _train(self, n_epoch: int, save_epoch: int):
         """Main training loop.
 
         Assumes training and validation data loaders, model, loss, and optimizer
@@ -114,6 +130,9 @@ class PytorchPCA:
             every `save_epoch` validation loss and model state is recorded in `history`
         """
         total_start = time.time()
+
+        # for early stopping
+        best_epoch, best_loss = -1, np.inf
 
         for epoch in range(n_epoch):
             # training
@@ -148,8 +167,10 @@ class PytorchPCA:
             with torch.no_grad():
                 for Xv, iv in self.X_valid_dl:
                     X_recon = self.model(Xv, iv)
-                    vloss += self._compute_loss(X_recon, Xv).item() * len(Xv)
+                    # sum data loss over batches
+                    vloss += self._data_loss(X_recon, Xv).item() * len(Xv)
             vloss /= len(self.X_valid_dl.dataset)
+            vloss += self._regular_loss().item()
 
             eval_end = time.time()
             eval_time = eval_end - eval_start
@@ -157,12 +178,31 @@ class PytorchPCA:
             # record history
             if epoch % save_epoch == 0:
                 self.history["loss"].append(vloss)
-                self.history["model"].append(copy.deepcopy(self.model.state_dict()))
+                if self.save_model:
+                    self.history["model"].append(copy.deepcopy(self.model.state_dict()))
 
             print(
                 f"epoch {epoch:>3d} validation_loss: {vloss:>7f} "
                 f"train time: {train_time:>4f}s eval time: {eval_time:>4f}s"
             )
+
+            # early stopping
+            if vloss > best_loss or np.isclose(vloss, best_loss):
+                # no improvement
+                if epoch - best_epoch >= self.early_stopping:
+                    print(
+                        f"early stopping: no improvement in {self.early_stopping} epochs"
+                    )
+                    break
+            else:
+                best_epoch, best_loss = epoch, vloss
+
+        # early stopping warning
+        if n_epoch - best_epoch < self.early_stopping:
+            print(
+                "early stopping condition not reached: consider increasing n_epoch or lr"
+            )
+
         total_end = time.time()
         total_time = total_end - total_start
         print(f"total time: {total_time:>4f}s")
@@ -182,8 +222,39 @@ class PytorchPCA:
         """fitted mean offset per feature"""
         return self.model.mu.detach().cpu().numpy()
 
-    def fit_transform(self, X: np.ndarray, lr=1e-3, n_epoch=10):
-        """Optimize model and return latent loadings
+    def fit(self, X: np.ndarray):
+        """Fit model and return estimator."""
+        self._init_estimator()
+        # coerce data to float
+        self._init_model(X.astype("float32"), lr=self.lr)
+        self._train(n_epoch=self.n_epoch, save_epoch=self.save_epoch)
+        return self
+
+    def transform(self, X: np.ndarray):
+        """Transform with fitted component and bias."""
+        # check if fitted
+        if not hasattr(self, "model"):
+            raise RuntimeError("Must call fit before transform.")
+
+        self.eval_estimator = clone(self)
+        # set and freeze params after initialization
+        self.eval_estimator._init_estimator()
+        self.eval_estimator._init_model(X.astype("float32"), lr=self.eval_estimator.lr)
+        self.eval_estimator.model.W = nn.Parameter(
+            self.model.W.clone().detach(), requires_grad=False
+        )
+        self.eval_estimator.model.mu = nn.Parameter(
+            self.model.mu.clone().detach(), requires_grad=False
+        )
+        # manual train
+        self.eval_estimator._train(
+            n_epoch=self.eval_estimator.n_epoch,
+            save_epoch=self.eval_estimator.save_epoch,
+        )
+        return self.eval_estimator.latent
+
+    def fit_transform(self, X: np.ndarray):
+        """Optimize model and return latent loadings.
 
         Parameters
         ----------
@@ -195,8 +266,9 @@ class PytorchPCA:
         z: `np.ndarray`
             inferred latent loadings (N samples x K components)
         """
-        # coerce data to float
-        self._init_model(X.astype("float32"), lr=lr)
-        self._train(n_epoch=n_epoch)
-
+        self.fit(X)
         return self.latent
+
+    def summary(self):
+        """Generate torchinfo summary of model."""
+        return torchinfo.summary(self.model, next(iter(self.X_train_dl)))
