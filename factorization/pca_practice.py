@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import torchinfo
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from loguru import logger
+from tqdm.auto import tqdm, trange
 
 
 class TensorIndicesDataset(TensorDataset):
@@ -135,7 +136,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         # for early stopping
         best_epoch, best_loss = -1, np.inf
 
-        for epoch in range(n_epoch):
+        for epoch in trange(n_epoch, desc="epochs"):
             # training
             train_start = time.time()
             self.model.train()
@@ -154,7 +155,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
 
                 # batch update
                 if batch % 100 == 0:
-                    print(
+                    logger.info(
                         f"    batch_loss: {loss.item():>7f} "
                         f"item: [{(batch + 1) * len(Xb):>7d}/{len(self.X_train_dl.dataset):>7d}]"
                     )
@@ -182,7 +183,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
                 if self.save_model:
                     self.history["model"].append(copy.deepcopy(self.model.state_dict()))
 
-            print(
+            logger.info(
                 f"epoch {epoch:>3d} validation_loss: {vloss:>7f} "
                 f"train time: {train_time:>4f}s eval time: {eval_time:>4f}s"
             )

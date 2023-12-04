@@ -8,6 +8,7 @@ dependencies:
   - seaborn
   - jupyterlab
   - notebook
+  - ipywidgets
   - pytorch
   - pyro-ppl
   - torchvision
