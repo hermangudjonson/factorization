@@ -12,6 +12,7 @@ from torch.nn.parameter import Parameter
 from torch.utils.data import DataLoader, TensorDataset
 import torchinfo
 from sklearn.base import BaseEstimator, TransformerMixin, clone
+from loguru import logger
 
 
 class TensorIndicesDataset(TensorDataset):
@@ -70,7 +71,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
             self.history["model"] = []
         # CPU or GPU
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Using {self.device} device")
+        logger.info(f"Using {self.device} device")
 
     def _init_model(self, X: np.ndarray, lr: float):
         """Create torch model given starting data."""
@@ -190,7 +191,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
             if vloss > best_loss or np.isclose(vloss, best_loss):
                 # no improvement
                 if epoch - best_epoch >= self.early_stopping:
-                    print(
+                    logger.info(
                         f"early stopping: no improvement in {self.early_stopping} epochs"
                     )
                     break
@@ -199,13 +200,13 @@ class PytorchMF(BaseEstimator, TransformerMixin):
 
         # early stopping warning
         if n_epoch - best_epoch < self.early_stopping:
-            print(
+            logger.info(
                 "early stopping condition not reached: consider increasing n_epoch or lr"
             )
 
         total_end = time.time()
         total_time = total_end - total_start
-        print(f"total time: {total_time:>4f}s")
+        logger.info(f"total time: {total_time:>4f}s")
 
     @property
     def latent(self):
