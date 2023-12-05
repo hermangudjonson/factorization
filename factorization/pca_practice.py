@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import torchinfo
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from loguru import logger
-from tqdm.auto import tqdm, trange
+from tqdm.auto import trange
 
 
 class TensorIndicesDataset(TensorDataset):
