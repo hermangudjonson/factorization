@@ -11,7 +11,7 @@ import pandas as pd
 sys.path.append("/Users/herman/Dropbox/Peer/general/utils")
 import plotting_utils as pu
 
-from factorization.pca_practice import PytorchPCA
+from factorization.pca_practice import PytorchMF
 
 
 # arrow helper
@@ -29,7 +29,7 @@ def _add_arrow(start: Tuple[float, float], end: Tuple[float, float], ax=None):
 
 
 def plot_arrow(
-    fitted_model: PytorchPCA,
+    fitted_model: PytorchMF,
     data: np.ndarray,
     labels: np.ndarray,
     normalize=False,
@@ -39,7 +39,7 @@ def plot_arrow(
 
     Parameters
     ----------
-    fitted_model: `PytorchPCA`
+    fitted_model: `PytorchMF`
         PCA object that has been fit on data
     data: `numpy.ndarray`
         original data points
@@ -67,7 +67,7 @@ def plot_arrow(
     _add_arrow(mu, mu + (components[:, 1] / norm_scale))
 
 
-def plot_loss(fitted_model: PytorchPCA, ax=None):
+def plot_loss(fitted_model: PytorchMF, ax=None):
     """Plot loss per epoch"""
     if not ax:
         ax = plt.gca()
