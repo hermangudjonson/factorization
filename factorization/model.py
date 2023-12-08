@@ -1,5 +1,5 @@
 """
-PCA implementation practice with Pytorch
+MF implementation practice with Pytorch
 """
 
 import copy

@@ -1,5 +1,5 @@
 """
-plotting support functions for examining pca module performance
+plotting support functions for examining mf module performance
 """
 import sys
 from typing import Tuple
@@ -11,7 +11,7 @@ import pandas as pd
 sys.path.append("/Users/herman/Dropbox/Peer/general/utils")
 import plotting_utils as pu
 
-from factorization.pca_practice import PytorchMF
+from factorization.model import PytorchMF
 
 
 # arrow helper
