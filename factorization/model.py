@@ -1,5 +1,5 @@
 """
-PCA implementation practice with Pytorch
+MF implementation practice with Pytorch
 """
 
 import copy
@@ -7,12 +7,13 @@ import time
 
 import numpy as np
 import torch
+import torchinfo
+from loguru import logger
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from torch import nn
 from torch.nn.parameter import Parameter
+from torch.nn.utils import parametrizations
 from torch.utils.data import DataLoader, TensorDataset
-import torchinfo
-from sklearn.base import BaseEstimator, TransformerMixin, clone
-from loguru import logger
 from tqdm.auto import trange
 
 
@@ -25,11 +26,7 @@ class TensorIndicesDataset(TensorDataset):
 
 
 class _MFModule(nn.Module):
-    def __init__(
-        self,
-        X_shape: tuple[int, int],
-        K: int = 2,
-    ):
+    def __init__(self, X_shape: tuple[int, int], K: int = 2, configuration: str = None):
         super(_MFModule, self).__init__()
         # sizing
         self.N, self.P = X_shape
@@ -38,6 +35,15 @@ class _MFModule(nn.Module):
         self.z = Parameter(torch.randn(self.N, self.K))
         self.W = Parameter(torch.randn(self.P, self.K))
         self.mu = Parameter(torch.randn(self.P))
+
+        # configure parameters
+        if configuration is not None:
+            self._configure(configuration)
+
+    def _configure(self, configuration: str):
+        """Configure and/or parametrize components"""
+        if configuration == "orthogonal":
+            parametrizations.orthogonal(self, "W")
 
     def forward(self, X, indices):
         return self.z[indices, :] @ self.W.T + self.mu
@@ -49,6 +55,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         n_components: int = 2,
+        configuration: str = None,
         n_epoch: int = 10,
         early_stopping: int = 5,
         save_epoch: int = 1,
@@ -57,6 +64,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         alpha: float = 1e-2,
     ):
         self.n_components = n_components
+        self.configuration = configuration
         self.n_epoch = n_epoch
         self.early_stopping = early_stopping
         self.save_epoch = save_epoch
@@ -89,7 +97,9 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         )
 
         # model
-        self.model = _MFModule(X.shape, self.n_components).to(self.device)
+        self.model = _MFModule(X.shape, self.n_components, self.configuration).to(
+            self.device
+        )
 
         # loss and optimizer
         self._data_loss = nn.MSELoss()

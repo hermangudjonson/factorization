@@ -24,4 +24,5 @@ dependencies:
   - flit
   - pip
   - pip:
+    - git+https://github.com/Lezcano/geotorch/
     - -e /Users/hermangudjonson/Dropbox/ml_practice/pyro/factorization_practice/factorization
