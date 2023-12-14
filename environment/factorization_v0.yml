@@ -17,6 +17,8 @@ dependencies:
   - python-wget
   - pandas-datareader
   - scikit-learn
+  - plotly
+  - ipyvolume
   - black
   - fire
   - cloudpickle
@@ -24,5 +26,6 @@ dependencies:
   - flit
   - pip
   - pip:
+    - ipython_genutils
     - git+https://github.com/Lezcano/geotorch/
     - -e /Users/hermangudjonson/Dropbox/ml_practice/pyro/factorization_practice/factorization

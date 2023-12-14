@@ -7,14 +7,27 @@ import time
 
 import numpy as np
 import torch
+import torch.distributions as td
 import torchinfo
 from loguru import logger
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from torch import nn
 from torch.nn.parameter import Parameter
-from torch.nn.utils import parametrizations
+from torch.nn.utils import parametrizations, parametrize
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm.auto import trange
+
+
+class TransformModule(nn.Module):
+    def __init__(self, transform: td.transforms.Transform):
+        super(TransformModule, self).__init__()
+        self.transform = transform
+
+    def forward(self, X):
+        return self.transform(X)
+
+    def right_inverse(self, Xp):
+        return self.transform.inv(Xp)
 
 
 class TensorIndicesDataset(TensorDataset):
@@ -44,6 +57,18 @@ class _MFModule(nn.Module):
         """Configure and/or parametrize components"""
         if configuration == "orthogonal":
             parametrizations.orthogonal(self, "W")
+        elif configuration == "nonnegative":
+            nonneg_module = TransformModule(td.transform_to(td.constraints.nonnegative))
+            # make params nonneg before registering
+            with torch.no_grad():
+                self.z.abs_()
+                self.W.abs_()
+            parametrize.register_parametrization(self, "z", nonneg_module)
+            parametrize.register_parametrization(self, "W", nonneg_module)
+            # also freeze mu to 0
+            self.mu = Parameter(torch.zeros_like(self.mu), requires_grad=False)
+        else:
+            logger.error(f"Configuration {configuration} is not valid.")
 
     def forward(self, X, indices):
         return self.z[indices, :] @ self.W.T + self.mu
