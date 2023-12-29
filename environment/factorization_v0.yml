@@ -14,6 +14,7 @@ dependencies:
   - torchvision
   - torchaudio
   - torchinfo
+  - graphviz
   - python-wget
   - pandas-datareader
   - scikit-learn
@@ -27,5 +28,6 @@ dependencies:
   - pip
   - pip:
     - ipython_genutils
+    - torchviz
     - git+https://github.com/Lezcano/geotorch/
     - -e /Users/hermangudjonson/Dropbox/ml_practice/pyro/factorization_practice/factorization

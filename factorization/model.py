@@ -39,7 +39,13 @@ class TensorIndicesDataset(TensorDataset):
 
 
 class _MFModule(nn.Module):
-    def __init__(self, X_shape: tuple[int, int], K: int = 2, configuration: str = None):
+    def __init__(
+        self,
+        X_shape: tuple[int, int],
+        K: int = 2,
+        configuration: str = None,
+        glm: str = None,
+    ):
         super(_MFModule, self).__init__()
         # sizing
         self.N, self.P = X_shape
@@ -49,9 +55,14 @@ class _MFModule(nn.Module):
         self.W = Parameter(torch.randn(self.P, self.K))
         self.mu = Parameter(torch.randn(self.P))
 
+        self.configuration = configuration
+        self.glm = glm
         # configure parameters
         if configuration is not None:
             self._configure(configuration)
+        # configure glm transform
+        if glm is not None:
+            self.glm_transform = self._get_glm_transform(glm)
 
     def _configure(self, configuration: str):
         """Configure and/or parametrize components"""
@@ -70,8 +81,43 @@ class _MFModule(nn.Module):
         else:
             logger.error(f"Configuration {configuration} is not valid.")
 
+    def _get_glm_transform(self, glm_transform):
+        """Return glm link transform.
+
+        If necessary, initialize additional distribution parameters.
+        """
+        if glm_transform == "gaussian":
+            self.scale = Parameter(torch.tensor(1.0))
+            # enforce min value for scale
+            min_module = TransformModule(
+                td.transform_to(td.constraints.greater_than(1e-2))
+            )
+            parametrize.register_parametrization(self, "scale", min_module)
+            return nn.Identity()
+        elif glm_transform == "bernoulli":
+            return torch.sigmoid
+        elif glm_transform == "poisson":
+            return torch.exp
+        else:
+            logger.error(f"GLM transform {glm_transform} is not valid.")
+
     def forward(self, X, indices):
-        return self.z[indices, :] @ self.W.T + self.mu
+        X_recon = self.z[indices, :] @ self.W.T + self.mu
+        if self.glm is not None:
+            X_recon = self.glm_transform(X_recon)
+        return X_recon
+
+
+class _GaussianNLLLossProxy:
+    """Proxy for GaussianNLLLoss that sets variance when initialized."""
+
+    def __init__(self, model, *args, **kwargs):
+        self.gl = torch.nn.GaussianNLLLoss(*args, **kwargs)
+        self.model = model  # use model to source scale
+
+    def __call__(self, input, target):
+        # have to match variance dimensions to data
+        return self.gl(input, target, self.model.scale * torch.ones_like(input))
 
 
 class PytorchMF(BaseEstimator, TransformerMixin):
@@ -81,6 +127,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         self,
         n_components: int = 2,
         configuration: str = None,
+        glm: str = None,
         n_epoch: int = 10,
         early_stopping: int = 5,
         save_epoch: int = 1,
@@ -90,6 +137,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
     ):
         self.n_components = n_components
         self.configuration = configuration
+        self.glm = glm
         self.n_epoch = n_epoch
         self.early_stopping = early_stopping
         self.save_epoch = save_epoch
@@ -122,18 +170,28 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         )
 
         # model
-        self.model = _MFModule(X.shape, self.n_components, self.configuration).to(
-            self.device
-        )
+        self.model = _MFModule(
+            X.shape, self.n_components, self.configuration, self.glm
+        ).to(self.device)
 
         # loss and optimizer
-        self._data_loss = nn.MSELoss()
+        self._data_loss = self._get_data_loss(self.glm)
         self.optim = torch.optim.Adam(self.model.parameters(), lr=lr)
+
+    def _get_data_loss(self, glm_transform):
+        if glm_transform is None:
+            return nn.MSELoss()
+        elif glm_transform == "gaussian":
+            return _GaussianNLLLossProxy(self.model)
+        elif glm_transform == "bernoulli":
+            return torch.nn.BCELoss()
+        elif glm_transform == "poisson":
+            return torch.nn.PoissonNLLLoss(log_input=False)
 
     def _regular_loss(self):
         """Compute regularization loss on parameters.
 
-        includes regularization coefficient and size normalized
+        includes regularization coefficient and batch size normalization
         """
         return self.alpha * torch.norm(self.model.z, p=2) / self.model.z.size(0)
 
