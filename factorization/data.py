@@ -63,15 +63,15 @@ class MoonMaker:
         X_rot = self.latent_scale * X_rot + self.latent_shift
 
         # add noise
-        if self.noise_var_prop is not None:
-            # calculate noise_std to satisfy noise proportion
-            noise_var_total = (
-                self.noise_var_prop
-                * (X_rot.var(axis=0).sum())
-                / (1 - self.noise_var_prop)
-            )
-            self.noise_std = np.sqrt(noise_var_total / self.noise_dim)
         if self.noise_dim > 0:
+            if self.noise_var_prop is not None:
+                # calculate noise_std to satisfy noise proportion
+                noise_var_total = (
+                    self.noise_var_prop
+                    * (X_rot.var(axis=0).sum())
+                    / (1 - self.noise_var_prop)
+                )
+                self.noise_std = np.sqrt(noise_var_total / self.noise_dim)
             X = np.hstack(
                 [
                     X_rot,

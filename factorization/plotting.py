@@ -72,7 +72,13 @@ def plot_loss(fitted_model: PytorchMF, ax=None):
     if not ax:
         ax = plt.gca()
     ax.plot(
-        range(len(fitted_model.history["loss"])), np.log10(fitted_model.history["loss"])
+        range(len(fitted_model.history["loss"])),
+        # shift to values >= 1 for log10 plotting
+        np.log10(
+            np.array(fitted_model.history["loss"])
+            - min(fitted_model.history["loss"])
+            + 1
+        ),
     )
     ax.set_xlabel("epoch", fontsize=16)
     ax.set_ylabel("log10(loss)", fontsize=16)

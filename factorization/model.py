@@ -98,6 +98,8 @@ class _MFModule(nn.Module):
             return torch.sigmoid
         elif glm_transform == "poisson":
             return torch.exp
+        else:
+            logger.error(f"GLM transform {glm_transform} is not valid.")
 
     def forward(self, X, indices):
         X_recon = self.z[indices, :] @ self.W.T + self.mu
@@ -182,9 +184,9 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         elif glm_transform == "gaussian":
             return _GaussianNLLLossProxy(self.model)
         elif glm_transform == "bernoulli":
-            pass
+            return torch.nn.BCELoss()
         elif glm_transform == "poisson":
-            pass
+            return torch.nn.PoissonNLLLoss(log_input=False)
 
     def _regular_loss(self):
         """Compute regularization loss on parameters.
