@@ -31,5 +31,6 @@ dependencies:
   - pip:
     - ipython_genutils
     - torchviz
+    - torch_tb_profiler
     - git+https://github.com/Lezcano/geotorch/
     - -e /Users/hermangudjonson/Dropbox/ml_practice/pyro/factorization_practice/factorization

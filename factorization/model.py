@@ -15,6 +15,7 @@ from torch import nn
 from torch.nn.parameter import Parameter
 from torch.nn.utils import parametrizations, parametrize
 from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import trange
 
 
@@ -132,6 +133,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         early_stopping: int = 5,
         save_epoch: int = 1,
         save_model: bool = False,
+        tensorboard_dir: str = None,
         lr: float = 1e-3,
         alpha: float = 1e-2,
     ):
@@ -142,6 +144,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         self.early_stopping = early_stopping
         self.save_epoch = save_epoch
         self.save_model = save_model
+        self.tensorboard_dir = tensorboard_dir
         self.lr = lr
         self.alpha = alpha  # regularization coefficient
 
@@ -211,7 +214,7 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         """
         return self._data_loss(target_pred, target) + self._regular_loss()
 
-    def _train(self, n_epoch: int, save_epoch: int):
+    def _train(self, n_epoch: int, save_epoch: int, tensorboard_dir: str):
         """Main training loop.
 
         Assumes training and validation data loaders, model, loss, and optimizer
@@ -225,6 +228,11 @@ class PytorchMF(BaseEstimator, TransformerMixin):
             every `save_epoch` validation loss and model state is recorded in `history`
         """
         total_start = time.time()
+
+        # tensorboard writer
+        tensorboard_record = tensorboard_dir is not None
+        if tensorboard_record:
+            tb_writer = SummaryWriter(log_dir=tensorboard_dir)
 
         # for early stopping
         best_epoch, best_loss = -1, np.inf
@@ -252,6 +260,13 @@ class PytorchMF(BaseEstimator, TransformerMixin):
                         f"    batch_loss: {loss.item():>7f} "
                         f"item: [{(batch + 1) * len(Xb):>7d}/{len(self.X_train_dl.dataset):>7d}]"
                     )
+                    if tensorboard_record:
+                        tb_writer.add_scalars(
+                            "Loss",
+                            {"batch_loss": loss.item()},
+                            epoch * len(self.X_train_dl) + batch,
+                        )
+
             train_end = time.time()
             train_time = train_end - train_start
 
@@ -281,6 +296,13 @@ class PytorchMF(BaseEstimator, TransformerMixin):
                 f"train time: {train_time:>4f}s eval time: {eval_time:>4f}s"
             )
 
+            if tensorboard_record:
+                tb_writer.add_scalars(
+                    "Loss",
+                    {"validation_loss": vloss},
+                    epoch * len(self.X_train_dl) + batch,
+                )
+
             # early stopping
             if vloss > best_loss or np.isclose(vloss, best_loss):
                 # no improvement
@@ -301,6 +323,13 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         total_end = time.time()
         total_time = total_end - total_start
         logger.info(f"total time: {total_time:>4f}s")
+        if tensorboard_record:
+            # add model graph
+            Xb, ib = next(iter(self.X_train_dl))
+            tb_writer.add_graph(self.model, (Xb, ib))
+            # stop tensorboard recording
+            tb_writer.flush()
+            tb_writer.close()
 
     @property
     def latent(self):
@@ -322,7 +351,11 @@ class PytorchMF(BaseEstimator, TransformerMixin):
         self._init_estimator()
         # coerce data to float
         self._init_model(X.astype("float32"), lr=self.lr)
-        self._train(n_epoch=self.n_epoch, save_epoch=self.save_epoch)
+        self._train(
+            n_epoch=self.n_epoch,
+            save_epoch=self.save_epoch,
+            tensorboard_dir=self.tensorboard_dir,
+        )
         return self
 
     def transform(self, X: np.ndarray):
