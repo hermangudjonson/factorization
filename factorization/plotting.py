@@ -14,7 +14,6 @@ import plotting_utils as pu
 from factorization.model import PytorchMF
 
 
-# arrow helper
 def _add_arrow(start: Tuple[float, float], end: Tuple[float, float], ax=None):
     """Wrapper to add arrow on given plot"""
     if not ax:
