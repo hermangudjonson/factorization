@@ -9,6 +9,7 @@ import time
 
 import numpy as np
 import torch
+import torch.distributions.constraints as constraints
 from loguru import logger
 from sklearn.base import BaseEstimator, TransformerMixin
 from torch.utils.data import DataLoader
@@ -18,9 +19,9 @@ from tqdm.auto import trange
 import pyro
 import pyro.distributions as dist
 from factorization.model import TensorIndicesDataset, _MFModule
-from pyro.infer import SVI, Trace_ELBO
+from pyro.infer import SVI, Predictive, Trace_ELBO
 from pyro.infer.autoguide import AutoDelta, AutoNormal
-from pyro.nn import PyroModule, PyroSample
+from pyro.nn import PyroModule, PyroParam, PyroSample
 
 
 class MFModel(_MFModule, PyroModule):
@@ -30,15 +31,30 @@ class MFModel(_MFModule, PyroModule):
         K: int = 2,
         configuration: str = None,
         glm: str = None,
+        sparse: bool = False,
     ):
         # explicitly match initialization signature
         super(MFModel, self).__init__(X_shape, K, configuration, glm)
+        self.sparse = sparse
+
+        # indicate param sampling
         self.z = PyroSample(
             lambda self: dist.Normal(0, 1).expand([self.N, self.K]).to_event(1)
         )  # [N, K]
-        self.W = PyroSample(
-            lambda self: dist.Normal(0, 1).expand([self.P, self.K]).to_event(1)
-        )  # [P, K]
+        if not self.sparse:
+            self.W = PyroSample(
+                lambda self: dist.Normal(0, 1).expand([self.P, self.K]).to_event(1)
+            )  # [P, K]
+        else:
+            # ARD sparse prior
+            self.feature_precision = PyroParam(torch.zeros(self.P))
+            self.W = PyroSample(
+                lambda self: dist.Normal(
+                    0, torch.exp(self.feature_precision.unsqueeze(1))
+                )
+                .expand([self.P, self.K])
+                .to_event(1)
+            )
 
     def forward(self, X, indices):
         """MF Model Generative Process
@@ -85,6 +101,7 @@ class PyroMF(BaseEstimator, TransformerMixin):
         n_components: int = 2,
         # configuration: str = None,
         # glm: str = None,
+        sparse: bool = False,
         guide_type: str = "diag",
         n_epoch: int = 10,
         early_stopping: int = 5,
@@ -96,6 +113,7 @@ class PyroMF(BaseEstimator, TransformerMixin):
         self.n_components = n_components
         # self.configuration = configuration
         # self.glm = glm
+        self.sparse = sparse
         self.guide_type = guide_type  # guide configuration
         self.n_epoch = n_epoch
         self.early_stopping = early_stopping
@@ -143,7 +161,9 @@ class PyroMF(BaseEstimator, TransformerMixin):
         )
 
         # model
-        self.model = MFModel(X.shape, self.n_components).to(self.device)
+        self.model = MFModel(X.shape, self.n_components, sparse=self.sparse).to(
+            self.device
+        )
 
         # guide
         self.guide = self._get_guide(self.guide_type, self.model)
@@ -259,6 +279,42 @@ class PyroMF(BaseEstimator, TransformerMixin):
             tb_writer.flush()
             tb_writer.close()
 
+    @property
+    def latent(self):
+        """latent features per sample (N x K), posterior median"""
+        return self.guide.median()["z"].detach().cpu().numpy()
+
+    @property
+    def components(self):
+        """fitted principal component vectors (K x P), posterior median"""
+        return self.guide.median()["W"].detach().cpu().numpy()
+
+    @property
+    def offset(self):
+        """fitted mean offset per feature, posterior median"""
+        return self.model.mu.detach().cpu().numpy()
+
+    def sample_latent_rvs(self):
+        """Returrn dictionary containnig one random sample of latent variables from the guide."""
+        return dict(self.guide(*next(iter(self.X_train_dl))).items())
+
+    def named_parameters(self):
+        """Return dictionary containing torch parameters between model and guide."""
+        return dict(pyro.get_param_store().named_parameters())
+
+    def sample_posterior(self, num_samples=1000):
+        """Generate posterior predictive samples."""
+        predictive = Predictive(
+            pyro.poutine.uncondition(
+                self.model
+            ),  # must uncondition obs to sample predictive
+            guide=self.guide,
+            num_samples=num_samples,
+            return_sites=list(self.sample_latent_rvs().keys()) + ["obs", "_RETURN"],
+        )
+        X_tensor = self.X_ds.tensors[0]
+        return predictive(X_tensor, range(len(X_tensor)))
+
     def fit(self, X: np.ndarray):
         """Fit model and return estimator."""
         self._init_estimator()
@@ -271,8 +327,21 @@ class PyroMF(BaseEstimator, TransformerMixin):
         )
         return self
 
-    def fit_transform(self):
-        pass
+    def fit_transform(self, X: np.ndarray):
+        """Optimize model and return latent loadings.
+
+        Parameters
+        ----------
+        X: `np.ndarray`
+            input data matrix (N samples x P features)
+
+        Returns
+        -------
+        z: `np.ndarray`
+            inferred latent loadings (N samples x K components)
+        """
+        self.fit(X)
+        return self.latent
 
     def transform(self):
         pass
