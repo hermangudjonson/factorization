@@ -9,7 +9,6 @@ import time
 
 import numpy as np
 import torch
-import torch.distributions.constraints as constraints
 from loguru import logger
 from sklearn.base import BaseEstimator, TransformerMixin
 from torch.utils.data import DataLoader
