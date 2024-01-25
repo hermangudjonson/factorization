@@ -59,7 +59,6 @@ class MFModel(_MFModule, PyroModule):
         """MF Model Generative Process
 
         any sampling logic pertaining to module parameters must be here.
-        not minibatched yet
         """
         # relevant dimensions
         N, P, K = self.N, self.P, self.K
